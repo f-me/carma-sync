@@ -137,7 +137,7 @@ query con q args = do
 -- | Create or extend table
 createExtend :: MonadLog m => P.Connection -> TableDesc -> m ()
 createExtend con tbl = scope "createExtend" $ do
-    ignoreErrors $ liftIO $ do
+    ignoreError $ liftIO $ do
         P.execute_ con (fromString $ createTableQuery tbl)
         P.execute_ con (fromString $ createIndexQuery tbl)
         return ()
