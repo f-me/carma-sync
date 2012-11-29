@@ -219,6 +219,7 @@ retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> mapM retype' fs whe
         ("dictionary", "text"),
         ("phone", "text"),
         ("checkbox", "bool"),
+        ("coords", "geometry(point, 4326)"),
         ("date", "timestamp"),
         ("picker", "text"),
         ("map", "text"),
