@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Carma.ModelTables (
@@ -33,6 +34,9 @@ import Data.Text (Text)
 import Data.Time
 import Data.Time.Clock.POSIX
 import Data.String
+
+import Data.Char
+import qualified Blaze.ByteString.Builder.Char8 as BZ (fromString)
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.Map as M
 import qualified Data.HashMap.Strict as HM
@@ -133,7 +137,7 @@ query con q args = do
 -- | Create or extend table
 createExtend :: MonadLog m => P.Connection -> TableDesc -> m ()
 createExtend con tbl = scope "createExtend" $ do
-    ignoreError $ liftIO $ do
+    liftIO $ do
         P.execute_ con (fromString $ createTableQuery tbl)
         P.execute_ con (fromString $ createIndexQuery tbl)
         return ()
@@ -195,7 +199,7 @@ createIndexQuery (TableDesc nm _ _ _) = "create index on " ++ nm ++ " (id)"
 
 -- | Alter table add column queries for each field of table
 extendTableQueries :: TableDesc -> [String]
-extendTableQueries (TableDesc nm _ inhs flds) = map extendColumn flds where
+extendTableQueries (TableDesc nm _ _ flds) = map extendColumn flds where
     extendColumn :: TableColumn -> String
     extendColumn (TableColumn n t) = concat ["alter table ", nm, " add column ", n, " ", t]
 
@@ -235,7 +239,7 @@ retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> mapM retype' fs whe
         ("dictionary", "text"),
         ("phone", "text"),
         ("checkbox", "bool"),
-        ("coords", "geometry(point, 4326)"),
+        ("coords", "geometry(point,4326)"),
         ("date", "timestamp"),
         ("picker", "text"),
         ("map", "text"),
@@ -316,6 +320,7 @@ typize tbl = M.mapWithKey convertData where
         ("text", Right . P.toField),
         ("bool", fromB),
         ("integer", fromI),
+        ("geometry(point,4326)", fromCoords),
         ("timestamp", fromPosix)]
 
     fromB :: C8.ByteString -> Either String P.Action
@@ -341,6 +346,28 @@ typize tbl = M.mapWithKey convertData where
     asInt v = case C8.readInteger v of
         Just (x, "") -> Right x
         _ -> Left $ "Not an integer: " ++ str v
+
+tryRead :: Read a => C8.ByteString -> Either String (Maybe a)
+tryRead bs
+    | C8.null bs = Right Nothing
+    | C8.pack "null" == bs = Right Nothing
+    | otherwise = case reads (C8.unpack bs) of
+        [(v, s)] -> if all isSpace s 
+                    then Right (Just v) 
+                    else Left ("Can't read value: " ++ C8.unpack bs)
+        _ -> Left ("Can't read value: " ++ C8.unpack bs)
+
+-- | Read "52.32,3.45" into POINT. Resulting Action is unescaped.
+fromCoords :: C8.ByteString -> Either String P.Action
+fromCoords bs =
+    case tryRead $ C8.concat ["(", bs, ")"] of
+      Right (Just (lon :: Double, lat :: Double)) ->
+          Right $ (P.Plain . BZ.fromString) $
+                concat ["ST_PointFromText('POINT(", 
+                        show lon, " ", show lat, 
+                        ")', 4326)"]
+      Left s -> Left s
+      Right Nothing -> Right $ P.toField P.Null
 
 -- | Gets fields of table and its parents
 tableFlatFields :: TableDesc -> [TableColumn]
