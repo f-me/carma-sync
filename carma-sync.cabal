@@ -19,6 +19,7 @@ library
     base >= 4.6 && < 5.0,
     aeson == 0.6.*,
     bytestring == 0.10.*,
+    blaze-builder == 0.3.*,
     containers == 0.5.*,
     directory == 1.2.*,
     filepath == 1.3.*,
