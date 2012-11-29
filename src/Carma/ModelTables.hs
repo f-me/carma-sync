@@ -55,6 +55,7 @@ data ModelDesc = ModelDesc {
 
 data ModelField = ModelField {
     fieldName :: String,
+    fieldSqlType :: Maybe String,
     fieldType :: Maybe String,
     fieldGroup :: Maybe String }
         deriving (Eq, Ord, Read, Show)
@@ -62,6 +63,13 @@ data ModelField = ModelField {
 instance FromJSON ModelField where
     parseJSON (Object v) = ModelField <$>
         v .: "name" <*>
+        (do
+            mo <- v .:? "meta"
+            case mo of
+                Nothing -> pure Nothing
+                Just mo' -> case mo' of
+                    (Object mv) -> mv .:? "sqltype"
+                    _ -> pure Nothing) <*>
         v .:? "type" <*>
         v .:? "groupName"
     parseJSON _ = empty
@@ -125,7 +133,10 @@ query con q args = do
 -- | Create or extend table
 createExtend :: MonadLog m => P.Connection -> TableDesc -> m ()
 createExtend con tbl = scope "createExtend" $ do
-    exec $ createTableQuery tbl
+    ignoreError $ liftIO $ do
+        P.execute_ con (fromString $ createTableQuery tbl)
+        P.execute_ con (fromString $ createIndexQuery tbl)
+        return ()
     mapM_ exec $ extendTableQueries tbl
     where
         exec q = ignoreError $ do
@@ -144,7 +155,7 @@ insertUpdate con tbl i dat = scope "insertUpdate" $ do
 update :: MonadLog m => P.Connection -> TableDesc -> C8.ByteString -> M.Map C8.ByteString C8.ByteString -> m ()
 update con tbl i dat = scope "update" $ do
     liftIO $ P.execute con
-        (fromString $ "update " ++ tableName tbl ++ " set " ++ intercalate ", " setters) actualDats
+        (fromString $ "update " ++ tableName tbl ++ " set " ++ intercalate ", " setters ++ " where id = ?") (actualDats P.:. (P.Only i))
     return ()
     where
         (actualNames, actualDats) = removeNonColumns tbl dat
@@ -174,9 +185,13 @@ loadTableDesc g base f = do
 createTableQuery :: TableDesc -> String
 createTableQuery (TableDesc nm _ inhs flds) = concat $ creating ++ inherits where
     creating = [
-        "create table if not exists ", nm,
+        "create table ", nm,
         " (", intercalate ", " (map (\(TableColumn n t) -> n ++ " " ++ t) flds), ")"]
     inherits = if null inhs then [] else [" inherits (", intercalate ", " (map tableName inhs), ")"]
+
+-- | Make index on id
+createIndexQuery :: TableDesc -> String
+createIndexQuery (TableDesc nm _ _ _) = "create index on " ++ nm ++ " (id)"
 
 -- | Alter table add column queries for each field of table
 extendTableQueries :: TableDesc -> [String]
@@ -199,20 +214,21 @@ loadGroups field_groups = do
 -- | Unfold groups, adding fields from groups to model (with underscored prefix)
 ungroup :: ModelGroups -> ModelDesc -> Either String ModelDesc
 ungroup (ModelGroups g) (ModelDesc nm fs) = (ModelDesc nm . concat) <$> mapM ungroup' fs where
-    ungroup' (ModelField fname ftype Nothing) = return [ModelField fname ftype Nothing]
-    ungroup' (ModelField fname ftype (Just gname)) =
+    ungroup' (ModelField fname sqltype ftype Nothing) = return [ModelField fname sqltype ftype Nothing]
+    ungroup' (ModelField fname sqltype ftype (Just gname)) =
         maybe
             (Left $ "Can't find group " ++ gname)
             (return . map appends)
             (M.lookup gname g)
         where
-            appends (ModelField fname' ftype' _) = ModelField (fname ++ "_" ++ fname') ftype' Nothing
+            appends (ModelField fname' sqltype' ftype' _) = ModelField (fname ++ "_" ++ fname') (sqltype' `mplus` sqltype) (ftype' `mplus` ftype) Nothing
 
 -- | Convert model description to table description with silly type converting
 retype :: ModelDesc -> Either String TableDesc
 retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> mapM retype' fs where
-    retype' (ModelField fname Nothing _) = return $ TableColumn fname "text"
-    retype' (ModelField fname (Just ftype) _) = TableColumn fname <$> maybe unknown Right (lookup ftype retypes) where
+    retype' (ModelField fname (Just sqltype) _ _) = return $ TableColumn fname sqltype
+    retype' (ModelField fname Nothing Nothing _) = return $ TableColumn fname "text"
+    retype' (ModelField fname Nothing (Just ftype) _) = TableColumn fname <$> maybe unknown Right (lookup ftype retypes) where
         unknown = Left $ "Unknown type: " ++ ftype
     retypes = [
         ("datetime", "timestamp"),
@@ -291,18 +307,40 @@ typize tbl = M.mapWithKey convertData where
     convertData k v = fromMaybe (P.toField v) $ do
         t <- fmap columnType $ find ((== (str k)) . columnName) $ tableFlatFields tbl
         conv <- lookup t convertors
-        return $ conv v
+        case conv v of
+            Left err -> error $ "Error in '" ++ str k ++ "': " ++ err
+            Right x -> return x
+
+    convertors :: [(String, C8.ByteString -> Either String P.Action)]
     convertors = [
-        ("text", P.toField),
-        ("bool", P.toField),
-        ("integer", P.toField),
+        ("text", Right . P.toField),
+        ("bool", fromB),
+        ("integer", fromI),
         ("timestamp", fromPosix)]
-    fromPosix :: C8.ByteString -> P.Action
-    fromPosix "" = P.toField P.Null
-    fromPosix v = P.toField . utcToLocalTime utc
-        . posixSecondsToUTCTime . fromInteger . fst
-        . fromMaybe notInt . C8.readInteger $ v where
-            notInt = error $ "Can't read POSIX time: " ++ str v
+
+    fromB :: C8.ByteString -> Either String P.Action
+    fromB "" = Right $ P.toField P.Null
+    fromB "1" = Right $ P.toField True
+    fromB "0" = Right $ P.toField False
+    fromB v = Left $ "Not a boolean: " ++ str v
+
+    fromI :: C8.ByteString -> Either String P.Action
+    fromI "" = Right $ P.toField P.Null
+    fromI v = do
+        x <- asInt v
+        return $ P.toField x
+
+    fromPosix :: C8.ByteString -> Either String P.Action
+    fromPosix "" = Right $ P.toField P.Null
+    fromPosix v = do
+        x <- asInt v
+        return $ P.toField $ utcToLocalTime utc
+            $ posixSecondsToUTCTime $ fromInteger x
+
+    asInt :: C8.ByteString -> Either String Integer
+    asInt v = case C8.readInteger v of
+        Just (x, "") -> Right x
+        _ -> Left $ "Not an integer: " ++ str v
 
 -- | Gets fields of table and its parents
 tableFlatFields :: TableDesc -> [TableColumn]
