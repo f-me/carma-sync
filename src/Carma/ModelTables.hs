@@ -137,13 +137,13 @@ query con q args = do
 -- | Create or extend table
 createExtend :: MonadLog m => P.Connection -> TableDesc -> m ()
 createExtend con tbl = scope "createExtend" $ do
-    ignoreError $ liftIO $ do
+    ignoreError $ scope "query" $ liftIO $ do
         P.execute_ con (fromString $ createTableQuery tbl)
         P.execute_ con (fromString $ createIndexQuery tbl)
         return ()
     mapM_ exec $ extendTableQueries tbl
     where
-        exec q = ignoreError $ do
+        exec q = ignoreError $ scope "query" $ do
             liftIO $ P.execute_ con (fromString q)
             return ()
 
