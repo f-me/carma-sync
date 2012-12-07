@@ -35,7 +35,7 @@ clean m = do
         "resources/site-config/models"
         "resources/site-config/field-groups.json"
     let
-        fields = map (MT.tableModel &&& (map (fromString . MT.columnName) . MT.tableFields)) descs
+        fields = map (MT.tableModel &&& (("id":) . map (fromString . MT.columnName) . MT.tableFields)) descs
 
     conn <- R.connect R.defaultConnectInfo
     R.runRedis conn $ do
