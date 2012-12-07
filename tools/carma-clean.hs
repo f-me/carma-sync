@@ -24,9 +24,9 @@ main = do
     as <- getArgs
     case as of
         ["--help"] -> do
-            putStrLn "Usage: carma-clean [model]"
+            putStrLn "Usage: carma-clean <model>"
         [m] -> clean (Just m)
-        [] -> clean Nothing
+        [] -> putStrLn "Specify model"
         _ -> putStrLn "Invalid arguments"
 
 clean :: Maybe String -> IO ()
