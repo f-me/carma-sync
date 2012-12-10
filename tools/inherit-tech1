@@ -1,0 +1,3 @@
+alter table tech1tbl add column type text;
+update tech1tbl set type = 'tech1';
+alter table tech1tbl inherit servicetbl;
