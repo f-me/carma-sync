@@ -314,7 +314,7 @@ typize tbl = M.mapWithKey convertData where
         t <- fmap columnType $ find ((== (str k)) . columnName) $ tableFlatFields tbl
         conv <- lookup t convertors
         case conv v of
-            Left err -> error $ "Error in '" ++ str k ++ "': " ++ err
+            Left err -> return $ P.toField P.Null
             Right x -> return x
 
     convertors :: [(String, C8.ByteString -> Either String P.Action)]
