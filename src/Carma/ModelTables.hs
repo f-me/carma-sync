@@ -261,24 +261,25 @@ addColumn nm tp (TableDesc n mdl h fs) = TableDesc n mdl h $ (TableColumn nm tp)
 -- | Services
 services :: [String]
 services = [
+    "averageCommissioner",
+    "bank",
+    "consultation",
+    "continue",
     "deliverCar",
+    "deliverClient",
     "deliverParts",
     "hotel",
     "information",
+    "insurance",
+    "ken",
     "rent",
     "sober",
     "taxi",
     "tech",
     "tech1",
-    "towage",
-    "transportation",
-    "ken",
-    "bank",
     "tickets",
-    "continue",
-    "deliverClient",
-    "averageCommissioner",
-    "insurance"]
+    "towage",
+    "transportation"]
 
 -- | Make service table and inherit services from it
 mergeServices :: [TableDesc] -> [TableDesc]
