@@ -12,9 +12,6 @@ import Control.DeepSeq
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.Error
-import Control.Monad.CatchIO
-import Control.Monad.IO.Class
-import Data.List
 import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -32,8 +29,7 @@ main :: IO ()
 main = do
     as <- getArgs
     case as of
-        ["--help"] -> do
-            putStrLn "Usage: carma-fix [model]"
+        ["--help"] -> putStrLn "Usage: carma-fix [model]"
         [m] -> fixVals (Just m)
         [] -> fixVals Nothing
         _ -> putStrLn "Invalid arguments"
@@ -58,16 +54,35 @@ fixVals m = do
 
 runFix :: R.Connection -> String -> ReaderT Log IO ()
 runFix con m = scope "fix" $ scope (fromString m) $ void $ runErrorT $ do
-    items <- ErrorT $ liftIO $ R.runRedis con $ R.keys $ fromString $ m ++ ":*"
+    items <- inRedis $ R.keys $ fromString $ m ++ ":*"
     let
         cnt = length items
-    lift $ forM_ (zip [1..] items) $ \(i, it) -> scope (T.decodeUtf8 it) $ runErrorT $ do
+    lift $ forM_ (zip [1..] items) $ \(i, it) -> runErrorT $ do
         liftIO $ putStrLn $ m ++ ":" ++ show i ++ "/" ++ show cnt
-        vals <- ErrorT $ liftIO $ R.runRedis con $ R.hgetall it
-        forM_ vals $ \(f, v) -> catch
-            (void $ liftIO $ E.evaluate (force $ T.decodeUtf8 v))
-            (lift . onError it f v)
-        ErrorT $ liftIO $ R.runRedis con $ R.hmset it vals
+        itName <- decodeName it $ do
+            lift $ logInvalid "Invalid key: " it
+            inRedis $ R.del [it]
+        lift $ scope itName $ void $ runErrorT $ do
+            vals <- inRedis $ R.hgetall it
+            forM_ vals $ \(f, v) -> do
+                fName <- decodeName f $ do
+                    lift $ logInvalid "Invalid field name: " f
+                    inRedis $ R.hdel it [f]
+                decodeName v $ do
+                    lift $ logInvalid (T.concat ["Invalid field ", fName, " : "]) v
+                    inRedis $ R.hset it f ""
     where
-        onError :: MonadLog m => C8.ByteString -> C8.ByteString -> C8.ByteString -> E.SomeException -> m ()
-        onError k f v _ = log Warning $ T.concat ["hget ", T.decodeUtf8 k, " ", T.decodeUtf8 f, " = ", fromString $ show v]
+        inRedis :: MonadIO m => R.Redis (Either R.Reply a) -> ErrorT R.Reply m a
+        inRedis = ErrorT . liftIO . R.runRedis con
+
+decodeName :: MonadIO m => C8.ByteString -> ErrorT R.Reply m a -> ErrorT R.Reply m T.Text
+decodeName bs onErr = liftIO (tryDecode bs) >>= maybe (onErr >> throwError noMsg) return
+
+tryDecode :: C8.ByteString -> IO (Maybe T.Text)
+tryDecode bs = E.catch convert onError where
+    convert = fmap Just $ E.evaluate (force $ T.decodeUtf8 bs)
+    onError :: E.SomeException -> IO (Maybe T.Text)
+    onError _ = return Nothing
+
+logInvalid :: MonadLog m => T.Text -> C8.ByteString -> m ()
+logInvalid txt v = log Warning $ T.concat [txt, fromString $ show v]
