@@ -1,5 +1,5 @@
 name:                carma-sync
-version:             0.1.2.4
+version:             0.1.2.5
 synopsis:            Save carma models to postgresql
 homepage:            https://github.com/mvoidex/carma-sync
 license:             BSD3
@@ -72,3 +72,15 @@ executable carma-fix
     text == 0.11.*,
     transformers >= 0.2 && < 0.4,
     carma-sync
+
+executable partner_service-clean
+  hs-source-dirs: tools
+  main-is: partner_service-clean.hs
+  build-depends:
+    base >= 4.6 && <5,
+    bytestring == 0.10.*,
+    hedis == 0.6.*,
+    mtl >= 2 && < 3,
+    transformers >= 0.2 && < 0.4,
+    postgresql-simple == 0.2.*,
+    containers == 0.5.*
