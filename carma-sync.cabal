@@ -46,7 +46,7 @@ executable carma-sync
     postgresql-simple == 0.3.*,
     simple-log == 0.2.*,
     text == 0.11.*,
-    transformers == 0.3.*
+    transformers == 0.3.*,
     vector == 0.10.*
 
 executable carma-clean
