@@ -36,6 +36,7 @@ import Data.Time.Clock.POSIX
 import Data.String
 
 import Data.Char
+import qualified Data.Vector as V
 import qualified Blaze.ByteString.Builder.Char8 as BZ (fromString)
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.Map as M
@@ -248,7 +249,8 @@ retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> (nub <$> mapM retyp
         ("files", "text"),
         ("json", "text"),
         ("partnerTable", "text"),
-        ("statictext", "text")]
+        ("statictext", "text"),
+        ("dictionary-many", "text[]" )]
 
 -- | Add id column
 addId :: TableDesc -> TableDesc
@@ -323,7 +325,8 @@ typize tbl = M.mapWithKey convertData where
         ("bool", fromB),
         ("integer", fromI),
         ("geometry(point,4326)", fromCoords),
-        ("timestamp", fromPosix)]
+        ("timestamp", fromPosix),
+        ("text[]", toArray)]
 
     fromB :: C8.ByteString -> Either String P.Action
     fromB "" = Right $ P.toField P.Null
@@ -348,6 +351,13 @@ typize tbl = M.mapWithKey convertData where
     asInt v = case C8.readInteger v of
         Just (x, "") -> Right x
         _ -> Left $ "Not an integer: " ++ str v
+
+    toArray :: C8.ByteString -> Either String P.Action
+    -- FIXME: in case of empty string postgres can't determine
+    -- type of {}, and I can't find a way to add type explicitly
+    -- so just set NULL
+    toArray "" = Right $ P.toField P.Null
+    toArray v  = Right $ P.toField $ V.fromList $ C8.split ',' v
 
 tryRead :: Read a => C8.ByteString -> Either String (Maybe a)
 tryRead bs
