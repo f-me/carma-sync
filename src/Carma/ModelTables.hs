@@ -137,14 +137,14 @@ query con q args = do
 -- | Create or extend table
 createExtend :: MonadLog m => P.Connection -> TableDesc -> m ()
 createExtend con tbl = scope "createExtend" $ do
-    ignoreError $ scope "query" $ liftIO $ do
-        P.execute_ con (fromString $ createTableQuery tbl)
-        P.execute_ con (fromString $ createIndexQuery tbl)
+    ignoreError $ scope "create" $ do
+        execute_ con (fromString $ createTableQuery tbl)
+        execute_ con (fromString $ createIndexQuery tbl)
         return ()
     mapM_ exec $ extendTableQueries tbl
     where
-        exec q = ignoreError $ scope "query" $ do
-            liftIO $ P.execute_ con (fromString q)
+        exec q = ignoreError $ scope "extend" $ do
+            execute_ con (fromString q)
             return ()
 
 -- | Insert or update data into table
@@ -229,7 +229,7 @@ ungroup (ModelGroups g) (ModelDesc nm fs) = (ModelDesc nm . concat) <$> mapM ung
 
 -- | Convert model description to table description with silly type converting
 retype :: ModelDesc -> Either String TableDesc
-retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> mapM retype' fs where
+retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> (nub <$> mapM retype' fs) where
     retype' (ModelField fname (Just sqltype) _ _) = return $ TableColumn fname sqltype
     retype' (ModelField fname Nothing Nothing _) = return $ TableColumn fname "text"
     retype' (ModelField fname Nothing (Just ftype) _) = TableColumn fname <$> maybe unknown Right (lookup ftype retypes) where
