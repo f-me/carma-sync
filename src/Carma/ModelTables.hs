@@ -142,6 +142,7 @@ createExtend con tbl = scope "createExtend" $ do
         execute_ con (fromString $ createTableQuery tbl)
         execute_ con (fromString $ createIndexQuery tbl)
         return ()
+    mapM_ exec $ inheritTableQueries tbl
     mapM_ exec $ extendTableQueries tbl
     where
         exec q = ignoreError $ scope "extend" $ do
@@ -197,6 +198,12 @@ createTableQuery (TableDesc nm _ inhs flds) = concat $ creating ++ inherits wher
 -- | Make index on id
 createIndexQuery :: TableDesc -> String
 createIndexQuery (TableDesc nm _ _ _) = "create index on " ++ nm ++ " (id)"
+
+-- | Alter table inherit
+inheritTableQueries :: TableDesc -> [String]
+inheritTableQueries (TableDesc nm _ inhs _) = map inheritTable inhs where
+    inheritTable :: TableDesc -> String
+    inheritTable (TableDesc p _ _ _) = concat ["alter table ", nm, " inherit ", p]
 
 -- | Alter table add column queries for each field of table
 extendTableQueries :: TableDesc -> [String]
