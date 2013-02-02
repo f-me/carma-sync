@@ -18,7 +18,7 @@ import Data.Maybe
 import Data.String
 import Data.List hiding (insert)
 import System.Environment
-import System.Log
+import System.Log.Simple
 import Text.Read
 
 import qualified Database.Redis as R

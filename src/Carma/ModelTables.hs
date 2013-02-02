@@ -47,7 +47,7 @@ import qualified Data.ByteString.Lazy as B
 import Data.Aeson
 import System.FilePath
 import System.Directory
-import System.Log
+import System.Log.Simple
 
 import qualified Database.PostgreSQL.Simple as P
 import qualified Database.PostgreSQL.Simple.ToField as P

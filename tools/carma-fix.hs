@@ -19,7 +19,7 @@ import qualified Data.ByteString.Char8 as C8
 import qualified Carma.ModelTables as MT
 import qualified Database.Redis as R
 import System.Environment
-import System.Log
+import System.Log.Simple
 
 instance Error R.Reply where
     strMsg = R.Error . fromString
