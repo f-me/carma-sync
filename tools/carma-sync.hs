@@ -50,8 +50,8 @@ rules r = [
   parseRule_ (fromString $ "/: use " ++ r),
   parseRule_ (fromString $ "insertUpdate: set fatal fatal"),
   parseRule_ (fromString $ "insert: set fatal fatal"),
-  parseRule_ (fromString $ "update: set fatal fatal")]
---  parseRule_ (fromString $ "createExtend: set fatal fatal")]
+  parseRule_ (fromString $ "update: set fatal fatal"),
+  parseRule_ (fromString $ "createExtend: set fatal fatal")]
 
 usage :: IO ()
 usage = mapM_ putStrLn [
