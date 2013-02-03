@@ -142,8 +142,8 @@ createExtend con tbl = scope "createExtend" $ do
         execute_ con (fromString $ createTableQuery tbl)
         execute_ con (fromString $ createIndexQuery tbl)
         return ()
-    mapM_ exec $ inheritTableQueries tbl
     mapM_ exec $ extendTableQueries tbl
+    mapM_ exec $ inheritTableQueries tbl
     where
         exec q = ignoreError $ scope "extend" $ do
             execute_ con (fromString q)
