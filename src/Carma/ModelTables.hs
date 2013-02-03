@@ -207,7 +207,7 @@ inheritTableQueries (TableDesc nm _ inhs _) = map inheritTable inhs where
 
 -- | Alter table add column queries for each field of table
 extendTableQueries :: TableDesc -> [String]
-extendTableQueries (TableDesc nm _ _ flds) = map extendColumn flds where
+extendTableQueries (TableDesc nm _ inhs flds) = map extendColumn flds ++ concatMap extendTableQueries inhs where
     extendColumn :: TableColumn -> String
     extendColumn (TableColumn n t) = concat ["alter table ", nm, " add column ", n, " ", t]
 
