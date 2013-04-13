@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -60,21 +61,32 @@ data ModelDesc = ModelDesc {
 
 data ModelField = ModelField {
     fieldName :: String,
+    fieldExportable :: Bool,
+    -- ^ True iff field must be synchronized to SQL storage (matches
+    -- the inverse of @nosql@ meta annotation value).
     fieldSqlType :: Maybe String,
     fieldType :: Maybe String,
     fieldGroup :: Maybe String }
         deriving (Eq, Ord, Read, Show)
 
 instance FromJSON ModelField where
-    parseJSON (Object v) = ModelField <$>
+    parseJSON (Object v) = do
+      -- Read meta bag
+      meta <- v .:? "meta" >>= \case
+              Nothing -> pure Nothing
+              Just mc ->
+                  case mc of
+                    (Object mo) -> pure $ Just mo
+                    _           -> pure Nothing
+      -- Read meta bag contents: nosql boolean flag and sqltype value
+      (ignore, sqltype) <-
+          case meta of
+            Just mv -> (,) <$> (mv .:? "nosql" .!= False) <*> (mv .:? "sqltype")
+            Nothing -> pure (True, Nothing)
+      ModelField <$>
         v .: "name" <*>
-        (do
-            mo <- v .:? "meta"
-            case mo of
-                Nothing -> pure Nothing
-                Just mo' -> case mo' of
-                    (Object mv) -> mv .:? "sqltype"
-                    _ -> pure Nothing) <*>
+        pure (not ignore) <*>
+        pure sqltype <*>
         v .:? "type" <*>
         v .:? "groupName"
     parseJSON _ = empty
@@ -226,21 +238,21 @@ loadGroups field_groups = do
 -- | Unfold groups, adding fields from groups to model (with underscored prefix)
 ungroup :: ModelGroups -> ModelDesc -> Either String ModelDesc
 ungroup (ModelGroups g) (ModelDesc nm fs) = (ModelDesc nm . concat) <$> mapM ungroup' fs where
-    ungroup' (ModelField fname sqltype ftype Nothing) = return [ModelField fname sqltype ftype Nothing]
-    ungroup' (ModelField fname sqltype ftype (Just gname)) =
+    ungroup' (ModelField fname ex sqltype ftype Nothing) = return [ModelField fname ex sqltype ftype Nothing]
+    ungroup' (ModelField fname _ sqltype ftype (Just gname)) =
         maybe
             (Left $ "Can't find group " ++ gname)
             (return . map appends)
             (M.lookup gname g)
         where
-            appends (ModelField fname' sqltype' ftype' _) = ModelField (fname ++ "_" ++ fname') (sqltype' `mplus` sqltype) (ftype' `mplus` ftype) Nothing
+            appends (ModelField fname' ex sqltype' ftype' _) = ModelField (fname ++ "_" ++ fname') ex (sqltype' `mplus` sqltype) (ftype' `mplus` ftype) Nothing
 
--- | Convert model description to table description with silly type converting
+-- | Convert model description to table description with silly type converting.
 retype :: ModelDesc -> Either String TableDesc
-retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> (nub <$> mapM retype' fs) where
-    retype' (ModelField fname (Just sqltype) _ _) = return $ TableColumn fname sqltype
-    retype' (ModelField fname Nothing Nothing _) = return $ TableColumn fname "text"
-    retype' (ModelField fname Nothing (Just ftype) _) = TableColumn fname <$> maybe unknown Right (lookup ftype retypes) where
+retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> (nub <$> (mapM retype' $ filter fieldExportable fs)) where
+    retype' (ModelField fname _ (Just sqltype) _ _) = return $ TableColumn fname sqltype
+    retype' (ModelField fname _ Nothing Nothing _) = return $ TableColumn fname "text"
+    retype' (ModelField fname _ Nothing (Just ftype) _) = TableColumn fname <$> maybe unknown Right (lookup ftype retypes) where
         unknown = Left $ "Unknown type: " ++ ftype
     retypes = [
         ("datetime", "timestamp"),
@@ -371,8 +383,8 @@ tryRead bs
     | C8.null bs = Right Nothing
     | C8.pack "null" == bs = Right Nothing
     | otherwise = case reads (C8.unpack bs) of
-        [(v, s)] -> if all isSpace s 
-                    then Right (Just v) 
+        [(v, s)] -> if all isSpace s
+                    then Right (Just v)
                     else Left ("Can't read value: " ++ C8.unpack bs)
         _ -> Left ("Can't read value: " ++ C8.unpack bs)
 
@@ -382,8 +394,8 @@ fromCoords bs =
     case tryRead $ C8.concat ["(", bs, ")"] of
       Right (Just (lon :: Double, lat :: Double)) ->
           Right $ (P.Plain . BZ.fromString) $
-                concat ["ST_PointFromText('POINT(", 
-                        show lon, " ", show lat, 
+                concat ["ST_PointFromText('POINT(",
+                        show lon, " ", show lat,
                         ")', 4326)"]
       Left s -> Left s
       Right Nothing -> Right $ P.toField P.Null
