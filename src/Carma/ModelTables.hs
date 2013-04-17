@@ -263,6 +263,7 @@ retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> (nub <$> (mapM rety
         ("date", "timestamp"),
         ("picker", "text"),
         ("map", "text"),
+        ("statictext", "text"),
         ("textarea", "text"),
         ("reference", "text"),
         ("files", "text"),
