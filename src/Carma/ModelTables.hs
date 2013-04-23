@@ -82,7 +82,7 @@ instance FromJSON ModelField where
       (ignore, sqltype) <-
           case meta of
             Just mv -> (,) <$> (mv .:? "nosql" .!= False) <*> (mv .:? "sqltype")
-            Nothing -> pure (True, Nothing)
+            Nothing -> pure (False, Nothing)
       ModelField <$>
         v .: "name" <*>
         pure (not ignore) <*>
