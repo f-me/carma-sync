@@ -266,7 +266,7 @@ retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> (nub <$> (mapM rety
         ("statictext", "text"),
         ("textarea", "text"),
         ("reference", "text"),
-        ("files", "text"),
+        ("file", "text"),
         ("json", "text"),
         ("partnerTable", "text"),
         ("statictext", "text"),
