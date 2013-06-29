@@ -267,7 +267,7 @@ retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> (nub <$> (mapM rety
         ("textarea", "text"),
         ("reference", "text"),
         ("file", "text"),
-        ("json", "text"),
+        ("json", "json"),
         ("partnerTable", "text"),
         ("statictext", "text"),
         ("dictionary-many", "text[]" )]
@@ -342,6 +342,7 @@ typize tbl = M.mapWithKey convertData where
     convertors :: [(String, C8.ByteString -> Either String P.Action)]
     convertors = [
         ("text", Right . P.toField),
+        ("json", Right . P.toField),
         ("bool", fromB),
         ("integer", fromI),
         ("geometry(point,4326)", fromCoords),
