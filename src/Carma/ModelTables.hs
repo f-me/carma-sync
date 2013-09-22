@@ -261,6 +261,7 @@ retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> (nub <$> (mapM rety
         ("checkbox", "bool"),
         ("coords", "geometry(point,4326)"),
         ("date", "timestamp"),
+        ("Day", "date"),
         ("picker", "text"),
         ("map", "text"),
         ("statictext", "text"),
@@ -343,6 +344,7 @@ typize tbl = M.mapWithKey convertData where
     convertors = [
         ("text", Right . P.toField),
         ("json", Right . P.toField),
+        ("date", Right . P.toField),
         ("bool", fromB),
         ("integer", fromI),
         ("geometry(point,4326)", fromCoords),
