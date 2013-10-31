@@ -32,7 +32,6 @@ import Control.Monad.CatchIO
 import Data.Maybe (fromMaybe)
 import Data.List hiding (insert)
 import Data.Text (Text)
-import Data.Time
 import Data.Time.Clock.POSIX
 import Data.String
 
@@ -357,16 +356,13 @@ typize tbl = M.mapWithKey convertData where
 
     fromI :: C8.ByteString -> Either String P.Action
     fromI "" = Right $ P.toField P.Null
-    fromI v = do
-        x <- asInt v
-        return $ P.toField x
+    fromI v = P.toField <$> asInt v
 
     fromPosix :: C8.ByteString -> Either String P.Action
     fromPosix "" = Right $ P.toField P.Null
-    fromPosix v = do
-        x <- asInt v
-        return $ P.toField $ utcToLocalTime utc
-            $ posixSecondsToUTCTime $ fromInteger x
+    fromPosix v
+      = P.toField . posixSecondsToUTCTime . fromInteger
+      <$> asInt v
 
     asInt :: C8.ByteString -> Either String Integer
     asInt v = case C8.readInteger v of
