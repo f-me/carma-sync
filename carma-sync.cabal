@@ -1,5 +1,5 @@
 name:                carma-sync
-version:             0.1.8.1
+version:             0.2
 synopsis:            Save carma models to postgresql
 homepage:            https://github.com/mvoidex/carma-sync
 license:             BSD3
@@ -20,6 +20,7 @@ library
     aeson >= 0.6 && < 0.8,
     bytestring == 0.10.*,
     blaze-builder == 0.3.*,
+    carma-models >= 0.16 && < 0.17,
     containers == 0.5.*,
     directory == 1.2.*,
     filepath == 1.3.*,

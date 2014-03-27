@@ -53,6 +53,10 @@ import qualified Database.PostgreSQL.Simple as P
 import qualified Database.PostgreSQL.Simple.ToField as P
 import qualified Database.PostgreSQL.Simple.Types as P
 
+import qualified Data.Model as CM
+import Data.Model.Types as CM (pgTypeName)
+import Carma.Model.Case (Case)
+
 data ModelDesc = ModelDesc {
     modelName :: String,
     modelFields :: [ModelField] }
@@ -119,12 +123,24 @@ data TableColumn = TableColumn {
     columnType :: String }
         deriving (Eq, Ord, Read, Show)
 
+-- | Generate carma-sync column definitions for carma-models data model.
+newColumns :: CM.Model m => CM.ModelInfo m -> [TableColumn]
+newColumns mi = map (\fd ->
+                    TableColumn
+                    (T.unpack $ CM.fd_name fd)
+                    (T.unpack $ CM.pgTypeName $ CM.fd_pgType fd)) $
+               CM.modelFields mi
+
 -- | Load all models, and generate table descriptions
 loadTables :: String -> String -> IO [TableDesc]
 loadTables base field_groups = do
     gs <- loadGroups field_groups
     ms <- fmap (filter $ isSuffixOf ".js") $ getDirectoryContents base
-    liftM (mergeServices . map addId) $ mapM (loadTableDesc gs base) ms
+    ms' <- liftM (mergeServices . map addId) $ mapM (loadTableDesc gs base) ms
+    -- carma-models compatibility for certain data models
+    let newTables = [TableDesc "casetbl" "case" [] $
+                     newColumns (CM.modelInfo :: CM.ModelInfo Case)]
+    return $ ms' ++ newTables
 
 execute_ :: MonadLog m => P.Connection -> P.Query -> m ()
 execute_ con q = do
@@ -252,7 +268,7 @@ retype (ModelDesc nm fs) = TableDesc (nm ++ "tbl") nm [] <$> (nub <$> (mapM rety
     retype' (ModelField fname _ (Just sqltype) _ _) = return $ TableColumn fname sqltype
     retype' (ModelField fname _ Nothing Nothing _) = return $ TableColumn fname "text"
     retype' (ModelField fname _ Nothing (Just ftype) _) = TableColumn fname <$> maybe unknown Right (lookup ftype retypes) where
-        unknown = Left $ "Unknown type: " ++ ftype
+        unknown = Right "text"
     retypes = [
         ("datetime", "timestamp"),
         ("dictionary", "text"),
