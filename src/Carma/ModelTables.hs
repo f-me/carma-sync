@@ -361,6 +361,7 @@ typize tbl = M.mapWithKey convertData where
         ("bool", fromB),
         ("integer", fromI),
         ("geometry(point,4326)", fromCoords),
+        ("timestamp with time zone", fromPosix),
         ("timestamp", fromPosix),
         ("text[]", toArray)]
 
