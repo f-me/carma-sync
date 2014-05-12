@@ -1,6 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 module Carma.ModelTables (
     -- * Types
@@ -29,7 +27,7 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.CatchIO
-import Data.Maybe (fromMaybe)
+import Data.Maybe
 import Data.List hiding (insert)
 import Data.Text (Text)
 import Data.Time.Clock.POSIX
@@ -54,8 +52,8 @@ import qualified Database.PostgreSQL.Simple.ToField as P
 import qualified Database.PostgreSQL.Simple.Types as P
 
 import qualified Data.Model as CM
-import Data.Model.Types as CM (pgTypeName)
-import Carma.Model.Case (Case)
+import qualified Data.Model.Types as CM
+import qualified Carma.Model as CM
 
 data ModelDesc = ModelDesc {
     modelName :: String,
@@ -123,23 +121,47 @@ data TableColumn = TableColumn {
     columnType :: String }
         deriving (Eq, Ord, Read, Show)
 
--- | Generate carma-sync column definitions for carma-models data model.
-newColumns :: CM.Model m => CM.ModelInfo m -> [TableColumn]
-newColumns mi = map (\fd ->
-                    TableColumn
-                    (T.unpack $ CM.fd_name fd)
-                    (T.unpack $ CM.pgTypeName $ CM.fd_pgType fd)) $
-               CM.modelFields mi
+
+-- | Generate carma-sync table definition from carma-models data model.
+mkTableDesc
+  :: forall m . CM.Model m => m -> TableDesc
+mkTableDesc _
+  = let mi = CM.modelInfo :: CM.ModelInfo m
+    in TableDesc
+      {tableName
+          = T.unpack $ CM.tableName mi
+      ,tableModel
+          = T.unpack $ fromMaybe (error "BUG: no legacy name")
+          $ CM.legacyModelName mi
+      ,tableParents
+          = maybeToList
+          $ (`CM.dispatch` mkTableDesc) =<< CM.parentName mi
+      ,tableFields
+          = [TableColumn
+              (T.unpack $ CM.fd_name fd)
+              (T.unpack $ CM.pgTypeName $ CM.fd_pgType fd)
+            | fd <- CM.modelOnlyFields mi
+            ]
+      }
+
+newTables :: [TableDesc]
+newTables = catMaybes
+    [CM.dispatch m mkTableDesc
+    |m <- M.elems CM.legacyModelNames
+    ]
+
+-- | Use parent table name to check for service-related tables
+isService :: TableDesc -> Bool
+isService (TableDesc{tableParents=[TableDesc{tableModel="service"}]}) = True
+isService _ = False
+
 
 -- | Load all models, and generate table descriptions
 loadTables :: String -> String -> IO [TableDesc]
 loadTables base field_groups = do
     gs <- loadGroups field_groups
     ms <- fmap (filter $ isSuffixOf ".js") $ getDirectoryContents base
-    ms' <- liftM (mergeServices . map addId) $ mapM (loadTableDesc gs base) ms
-    -- carma-models compatibility for certain data models
-    let newTables = [TableDesc "casetbl" "case" [] $
-                     newColumns (CM.modelInfo :: CM.ModelInfo Case)]
+    ms' <- liftM (map addId) $ mapM (loadTableDesc gs base) ms
     return $ ms' ++ newTables
 
 execute_ :: MonadLog m => P.Connection -> P.Query -> m ()
@@ -295,40 +317,6 @@ addId = addColumn "id" "integer"
 addColumn :: String -> String -> TableDesc -> TableDesc
 addColumn nm tp (TableDesc n mdl h fs) = TableDesc n mdl h $ (TableColumn nm tp) : fs
 
--- | Services
-services :: [String]
-services = [
-    "averageCommissioner",
-    "bank",
-    "consultation",
-    "continue",
-    "deliverCar",
-    "deliverClient",
-    "deliverParts",
-    "hotel",
-    "information",
-    "insurance",
-    "ken",
-    "rent",
-    "sober",
-    "taxi",
-    "tech",
-    "tech1",
-    "tickets",
-    "towage",
-    "transportation"]
-
--- | Make service table and inherit services from it
-mergeServices :: [TableDesc] -> [TableDesc]
-mergeServices tbls = srvBase : (srvsInherited ++ notSrvs) where
-    srvBase = addColumn "type" "text" $ TableDesc "servicetbl" "service" [] srvBaseFields
-    srvsInherited = map inherit srvs
-    inherit (TableDesc nm mdl inhs fs) = TableDesc nm mdl (srvBase : inhs) $ fs \\ srvBaseFields
-
-    (srvs, notSrvs) = partition ((`elem` (map addTbl services)) . tableName) tbls
-    srvBaseFields = foldr1 intersect $ map tableFields srvs
-
-    addTbl nm = nm ++ "tbl"
 
 -- | Find table for model
 tableByModel :: (Eq s, IsString s) => s -> [TableDesc] -> Maybe TableDesc
@@ -336,7 +324,7 @@ tableByModel name = find ((== name) . fromString . tableModel)
 
 -- | WORKAROUND: Explicitly add type value for data in service-derived model
 addType :: TableDesc -> M.Map C8.ByteString C8.ByteString -> M.Map C8.ByteString C8.ByteString
-addType (TableDesc _ mdl _ _) dat = if mdl `elem` services then M.insert "type" (fromString mdl) dat else dat
+addType m dat = if isService m then M.insert "type" (fromString $ tableModel m) dat else dat
 
 str :: C8.ByteString -> String
 str = T.unpack . T.decodeUtf8
