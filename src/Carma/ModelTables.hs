@@ -141,6 +141,8 @@ mkTableDesc _
               (T.unpack $ CM.fd_name fd)
               (T.unpack $ CM.pgTypeName $ CM.fd_pgType fd)
             | fd <- CM.modelOnlyFields mi
+            -- drop `id` column in inherited tables
+            , maybe True (const $ CM.fd_name fd /= "id") $ CM.parentName mi
             ]
       }
 
