@@ -10,7 +10,6 @@ module Carma.ModelTables (
     loadTables,
 
     -- * Queries
-    createExtend,
     insertUpdate, insert, update,
 
     -- * Util
@@ -26,10 +25,8 @@ import Control.Arrow
 import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.CatchIO
 import Data.Maybe
 import Data.List hiding (insert)
-import Data.Text (Text)
 import Data.Time.Clock.POSIX
 import Data.String
 
@@ -124,7 +121,7 @@ data TableColumn = TableColumn {
 
 -- | Generate carma-sync table definition from carma-models data model.
 mkTableDesc
-  :: forall m . CM.Model m => m -> TableDesc
+    :: forall m . CM.Model m => m -> TableDesc
 mkTableDesc _
   = let mi = CM.modelInfo :: CM.ModelInfo m
     in TableDesc
@@ -166,42 +163,11 @@ loadTables base field_groups = do
     ms' <- liftM (map addId) $ mapM (loadTableDesc gs base) ms
     return $ ms' ++ newTables
 
-execute_ :: MonadLog m => P.Connection -> P.Query -> m ()
-execute_ con q = do
-    bs <- liftIO $ P.formatQuery con q ()
-    log Trace $ T.decodeUtf8 bs
-    liftIO $ P.execute_ con q
-    return ()
-
-execute :: (MonadLog m, P.ToRow q) => P.Connection -> P.Query -> q -> m ()
-execute con q args = do
-    bs <- liftIO $ P.formatQuery con q args
-    log Trace $ T.decodeUtf8 bs
-    liftIO $ P.execute con q args
-    return ()
-
-query :: (MonadLog m, P.FromRow r, P.ToRow q) => P.Connection -> P.Query -> q -> m [r]
-query con q args = do
-    bs <- liftIO $ P.formatQuery con q args
-    log Trace $ T.decodeUtf8 bs
-    liftIO $ P.query con q args
-
--- | Create or extend table
-createExtend :: MonadLog m => P.Connection -> TableDesc -> m ()
-createExtend con tbl = scope "createExtend" $ do
-    ignoreError $ scope "create" $ do
-        execute_ con (fromString $ createTableQuery tbl)
-        execute_ con (fromString $ createIndexQuery tbl)
-        return ()
-    mapM_ exec $ extendTableQueries tbl
-    mapM_ exec $ inheritTableQueries tbl
-    where
-        exec q = ignoreError $ scope "extend" $ do
-            execute_ con (fromString q)
-            return ()
-
+--
 -- | Insert or update data into table
-insertUpdate :: MonadLog m => P.Connection -> TableDesc -> C8.ByteString -> M.Map C8.ByteString C8.ByteString -> m ()
+insertUpdate
+    :: MonadLog m
+    => P.Connection -> TableDesc -> C8.ByteString -> M.Map C8.ByteString C8.ByteString -> m ()
 insertUpdate con tbl i dat = scope "insertUpdate" $ do
     [P.Only b] <- liftIO $ P.query con
         (fromString $ "select count(*) > 0 from " ++ tableName tbl ++ " where id = ?") (P.Only i)
@@ -209,22 +175,33 @@ insertUpdate con tbl i dat = scope "insertUpdate" $ do
         then update con tbl i dat
         else insert con tbl (M.insert "id" i dat)
 
-update :: MonadLog m => P.Connection -> TableDesc -> C8.ByteString -> M.Map C8.ByteString C8.ByteString -> m ()
+update
+    :: MonadLog m
+    => P.Connection -> TableDesc -> C8.ByteString -> M.Map C8.ByteString C8.ByteString -> m ()
 update con tbl i dat = scope "update" $ do
-    liftIO $ P.execute con
-        (fromString $ "update " ++ tableName tbl ++ " set " ++ intercalate ", " setters ++ " where id = ?") (actualDats P.:. (P.Only i))
+    let (actualNames, actualDats) = removeNonColumns tbl dat
+    let setters = map (++ " = ?") actualNames
+    _ <- liftIO $ P.execute con
+      (fromString
+        $ "update " ++ tableName tbl
+        ++ " set " ++ intercalate ", " setters
+        ++ " where id = ?")
+      (actualDats P.:. (P.Only i))
     return ()
-    where
-        (actualNames, actualDats) = removeNonColumns tbl dat
-        setters = map (++ " = ?") actualNames
 
-insert :: MonadLog m => P.Connection -> TableDesc -> M.Map C8.ByteString C8.ByteString -> m ()
+insert
+    :: MonadLog m
+    => P.Connection -> TableDesc -> M.Map C8.ByteString C8.ByteString -> m ()
 insert con tbl dat = scope "insert" $ do
-    liftIO $ P.execute con
-        (fromString $ "insert into " ++ tableName tbl ++ " (" ++ intercalate ", " actualNames ++ ") values (" ++ intercalate ", " (replicate (length actualDats) "?") ++ ")") actualDats
+    let (actualNames, actualDats) = removeNonColumns tbl dat
+    _ <- liftIO $ P.execute con
+        (fromString
+          $ "insert into " ++ tableName tbl
+          ++ " (" ++ intercalate ", " actualNames ++ ") values ("
+          ++ intercalate ", " (replicate (length actualDats) "?")
+          ++ ")")
+        actualDats
     return ()
-    where
-        (actualNames, actualDats) = removeNonColumns tbl dat
 
 -- | Remove invalid fields
 removeNonColumns :: TableDesc -> M.Map C8.ByteString C8.ByteString -> ([String], [P.Action])
@@ -237,30 +214,6 @@ loadTableDesc g base f = do
     d <- loadDesc base f
     ungrouped <- either error return $ ungroup g d
     either error return $ retype ungrouped
-
--- | Create query for table
-createTableQuery :: TableDesc -> String
-createTableQuery (TableDesc nm _ inhs flds) = concat $ creating ++ inherits where
-    creating = [
-        "create table ", nm,
-        " (", intercalate ", " (map (\(TableColumn n t) -> n ++ " " ++ t) flds), ")"]
-    inherits = if null inhs then [] else [" inherits (", intercalate ", " (map tableName inhs), ")"]
-
--- | Make index on id
-createIndexQuery :: TableDesc -> String
-createIndexQuery (TableDesc nm _ _ _) = "create index on " ++ nm ++ " (id)"
-
--- | Alter table inherit
-inheritTableQueries :: TableDesc -> [String]
-inheritTableQueries (TableDesc nm _ inhs _) = map inheritTable inhs where
-    inheritTable :: TableDesc -> String
-    inheritTable (TableDesc p _ _ _) = concat ["alter table ", nm, " inherit ", p]
-
--- | Alter table add column queries for each field of table
-extendTableQueries :: TableDesc -> [String]
-extendTableQueries (TableDesc nm _ inhs flds) = map extendColumn flds ++ concatMap (map extendColumn . tableFields) inhs where
-    extendColumn :: TableColumn -> String
-    extendColumn (TableColumn n t) = concat ["alter table ", nm, " add column ", n, " ", t]
 
 -- | Load model description
 loadDesc :: String -> String -> IO ModelDesc
@@ -331,8 +284,6 @@ addType m dat = if isService m then M.insert "type" (fromString $ tableModel m) 
 str :: C8.ByteString -> String
 str = T.unpack . T.decodeUtf8
 
-unstr :: String -> C8.ByteString
-unstr = T.encodeUtf8 . T.pack
 
 -- | Convert data accord to its types
 typize :: TableDesc -> M.Map C8.ByteString C8.ByteString -> M.Map C8.ByteString P.Action
@@ -340,9 +291,9 @@ typize tbl = M.mapWithKey convertData where
     convertData k v = fromMaybe (P.toField v) $ do
         t <- fmap columnType $ find ((== (str k)) . columnName) $ tableFlatFields tbl
         conv <- lookup t convertors
-        case conv v of
-            Left err -> return $ P.toField P.Null
-            Right x -> return x
+        return $ case conv v of
+            Left _err -> P.toField P.Null
+            Right x   -> x
 
     convertors :: [(String, C8.ByteString -> Either String P.Action)]
     convertors = [
