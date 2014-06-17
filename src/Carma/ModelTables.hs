@@ -19,8 +19,6 @@ module Carma.ModelTables (
     tableFlatFields
     ) where
 
-import Prelude hiding (log)
-
 import Control.Arrow
 import Control.Applicative
 import Control.Monad
@@ -42,7 +40,6 @@ import qualified Data.ByteString.Lazy as B
 import Data.Aeson
 import System.FilePath
 import System.Directory
-import System.Log.Simple
 
 import qualified Database.PostgreSQL.Simple as P
 import qualified Database.PostgreSQL.Simple.ToField as P
@@ -166,9 +163,9 @@ loadTables base field_groups = do
 --
 -- | Insert or update data into table
 insertUpdate
-    :: MonadLog m
+    :: MonadIO m
     => P.Connection -> TableDesc -> C8.ByteString -> M.Map C8.ByteString C8.ByteString -> m ()
-insertUpdate con tbl i dat = scope "insertUpdate" $ do
+insertUpdate con tbl i dat = do
     [P.Only b] <- liftIO $ P.query con
         (fromString $ "select count(*) > 0 from " ++ tableName tbl ++ " where id = ?") (P.Only i)
     if b
@@ -176,9 +173,9 @@ insertUpdate con tbl i dat = scope "insertUpdate" $ do
         else insert con tbl (M.insert "id" i dat)
 
 update
-    :: MonadLog m
+    :: MonadIO m
     => P.Connection -> TableDesc -> C8.ByteString -> M.Map C8.ByteString C8.ByteString -> m ()
-update con tbl i dat = scope "update" $ do
+update con tbl i dat = do
     let (actualNames, actualDats) = removeNonColumns tbl dat
     let setters = map (++ " = ?") actualNames
     _ <- liftIO $ P.execute con
@@ -190,9 +187,9 @@ update con tbl i dat = scope "update" $ do
     return ()
 
 insert
-    :: MonadLog m
+    :: MonadIO m
     => P.Connection -> TableDesc -> M.Map C8.ByteString C8.ByteString -> m ()
-insert con tbl dat = scope "insert" $ do
+insert con tbl dat = do
     let (actualNames, actualDats) = removeNonColumns tbl dat
     _ <- liftIO $ P.execute con
         (fromString
