@@ -1,5 +1,5 @@
 name:                carma-sync
-version:             0.4
+version:             0.5
 synopsis:            Save carma models to postgresql
 homepage:            https://github.com/mvoidex/carma-sync
 license:             BSD3
