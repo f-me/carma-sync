@@ -153,11 +153,10 @@ isService _ = False
 
 
 -- | Load all models, and generate table descriptions
-loadTables :: String -> String -> IO [TableDesc]
-loadTables base field_groups = do
-    gs <- loadGroups field_groups
+loadTables :: String -> IO [TableDesc]
+loadTables base = do
     ms <- fmap (filter $ isSuffixOf ".js") $ getDirectoryContents base
-    ms' <- liftM (map addId) $ mapM (loadTableDesc gs base) ms
+    ms' <- liftM (map addId) $ mapM (loadTableDesc base) ms
     return $ ms' ++ newTables
 
 --
@@ -206,35 +205,16 @@ removeNonColumns tbl = unzip . filter ((`elem` fields) . fst) . map (first C8.un
     fields = map columnName $ tableFlatFields tbl
 
 -- | Load model description and convert to table
-loadTableDesc :: ModelGroups -> String -> String -> IO TableDesc
-loadTableDesc g base f = do
+loadTableDesc :: String -> String -> IO TableDesc
+loadTableDesc base f = do
     d <- loadDesc base f
-    ungrouped <- either error return $ ungroup g d
-    either error return $ retype ungrouped
+    either error return $ retype d
 
 -- | Load model description
 loadDesc :: String -> String -> IO ModelDesc
 loadDesc base f = do
     cts <- B.readFile (base </> f)
     maybe (error "Can't load") return $ decode cts
-
--- | Load group fields
-loadGroups :: String -> IO ModelGroups
-loadGroups field_groups = do
-    cts <- B.readFile field_groups
-    maybe (error "Can't load") return $ decode cts
-
--- | Unfold groups, adding fields from groups to model (with underscored prefix)
-ungroup :: ModelGroups -> ModelDesc -> Either String ModelDesc
-ungroup (ModelGroups g) (ModelDesc nm fs) = (ModelDesc nm . concat) <$> mapM ungroup' fs where
-    ungroup' (ModelField fname ex sqltype ftype Nothing) = return [ModelField fname ex sqltype ftype Nothing]
-    ungroup' (ModelField fname _ sqltype ftype (Just gname)) =
-        maybe
-            (Left $ "Can't find group " ++ gname)
-            (return . map appends)
-            (M.lookup gname g)
-        where
-            appends (ModelField fname' ex sqltype' ftype' _) = ModelField (fname ++ "_" ++ fname') ex (sqltype' `mplus` sqltype) (ftype' `mplus` ftype) Nothing
 
 -- | Convert model description to table description with silly type converting.
 retype :: ModelDesc -> Either String TableDesc
